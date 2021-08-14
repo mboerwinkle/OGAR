@@ -1,0 +1,15 @@
+[Unit]
+Description=OGAR Server
+After=network.target
+StartLimitIntervalSec=0
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+User=root
+WorkingDirectory=/root
+ExecStart=/bin/python3 galleryReceptor.py example.com
+StandardOutput=file:/root/galleryReceptor.log
+StandardError=file:/root/galleryReceptor.err
+[Install]
+WantedBy=multi-user.target
