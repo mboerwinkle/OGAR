@@ -2,10 +2,18 @@
 //CONFIGURE THESE CONSTANTS
 //is this embedded in qualtrics?
 const isQual = false;
-const ogarresourceroot = "https://example.com/ogar/";
-const ogarserverpath = "wss://example.com:6411";
-//
-
+var GalleryOpts = {
+	"BaseWidth":800,
+	"BaseHeight":450,
+	"FullWidth":1600,
+	"FullHeight":900,
+	"FragShader":"gl/world.frag",
+	"VertShader":"gl/world.vert",
+	"ArtSolidColor":false,
+	"ReceptorAddr":"wss://example.com:6411",
+	"GalleryPathOverride":null,
+	"GalleryDataRoot":"https://example.com/ogar/"
+};
 
 var QualtricsThis = null;
 if(isQual) QualtricsThis = this;
@@ -18,21 +26,25 @@ function nextButtonInterface(enable){
 	}
 }
 nextButtonInterface(false);
-var cust_intervals = [];
 
-var EPSILON = 0.005;
+const EPSILON = 0.005;
 
-var BaseWidth = 800;
-var BaseHeight = 450;
+if(!isQual){
+	const urlParams = new URLSearchParams(window.location.search);
+	Object.keys(GalleryOpts).forEach(function(k){
+		if(urlParams.has(k)){
+			GalleryOpts[k] = urlParams.getAll(k)[0];
+		}
+	});
+}
 
 var mycanv = document.createElement("canvas");
 mycanv.id = "glCanvas";
-mycanv.width = BaseWidth;
-mycanv.height = BaseHeight;
+mycanv.width = GalleryOpts["BaseWidth"];
+mycanv.height = GalleryOpts["BaseHeight"];
 
-const gallerydefpaths = {"SQUARE":"gallerysquare.json", "TWOROOM":"gallerytworooms.json"};
 var QID = 'ANON';
-var galleryname = 'TWOROOM';//'SQUARE';
+
 if(isQual){
 	var qid = this.questionId;
 	var qdiv = document.getElementById(qid);
@@ -40,12 +52,12 @@ if(isQual){
 	qdiv.prepend(mycanv);
 
 	var temp = function(){return ('0000'+Math.floor(Math.random()*10000)).slice(-4);};
-	QID = "Q_"+temp()+temp();
+	QID = "Q_"+temp()+temp()+temp();
 	Qualtrics.SurveyEngine.setEmbeddedData('Cust_UniqueID', QID);
 	galleryname = Qualtrics.SurveyEngine.getEmbeddedData('Cust_GalleryType');
 }else{
 	var temp = function(){return ('0000'+Math.floor(Math.random()*10000)).slice(-4);};
-	QID = "TEST_"+temp()+temp();
+	QID = "TEST_"+temp()+temp()+temp();
 	document.body.appendChild(mycanv);
 }
 //https://stackoverflow.com/questions/7293778/switch-canvas-context
@@ -61,10 +73,13 @@ function drawLoading(msg){
 	ctx.fillText(msg, mycanv.width/2, mycanv.height/2);
 }
 drawLoading("Loading...");
-console.log("QID: ",QID," galleryname: ",galleryname);
+console.log("QID: ",QID);
 
 
-var gallerydefpath = gallerydefpaths[galleryname];
+var gallerydefpath = "gallery.json";
+if(!(GalleryOpts.GalleryPathOverride === null)){
+	gallerydefpath = GalleryOpts.GalleryPathOverride;
+}
 
 class mbErrorRecorder{
 	constructor(){
@@ -103,6 +118,7 @@ class mbErrorRecorder{
 	}
 	wsconnect(ws){
 		this.ws = ws;
+		if(ws == null) return;
 		this.errors.forEach(e => {
 			this.wssend(e);
 		});
@@ -482,19 +498,20 @@ class Gallery{//FIXME art tex dims should be in by 0.5, not 1
 		}
 		this.gl = gl;
 		gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);//FIXME this line shouldnt be copied anywhere
-
 		gl.enable(gl.DEPTH_TEST);
-//		gl.enable(gl.CULL_FACE);
+		gl.enable(gl.CULL_FACE);
+		gl.clearColor(0,0.5,0.5,1);
 		this.loadTex(images);
 		for(var t = 0; t < this.points.length/3; t++){
 			this.texCoord = this.texCoord.concat([this.texMaxes[0]/6,this.texMaxes[1]*0.5]);
 		} //set wall texture coordinates to all the same thing. (pix 0,0)
 		{ //Create floor and ceiling
 			var b = this.bounds;
+			this.points = this.points.concat(b[0], b[1], 0, b[2], b[1], 0, b[0], b[3], 0, b[0], b[3], 0, b[2], b[1], 0, b[2], b[3], 0);
+			this.points = this.points.concat(b[0], b[1], wallH, b[0], b[3], wallH, b[2], b[1], wallH, b[2], b[1], wallH, b[0], b[3], wallH, b[2], b[3], wallH);
 			for(var l = 0; l <= 1; l++){
-				this.points = this.points.concat(b[0], b[1], l*wallH, b[0], b[3], l*wallH, b[2], b[1], l*wallH, b[0], b[3], l*wallH, b[2], b[1], l*wallH, b[2], b[3], l*wallH);
 				for(var v = 0; v < 6; v++){
-					this.texCoord = this.texCoord.concat([this.texMaxes[0]*((1/2)+(l/3)),this.texMaxes[1]*0.5] ); //texcoord (middle pixel or right pixel)
+					this.texCoord = this.texCoord.concat([this.texMaxes[0]*(0.5+(l/3)),this.texMaxes[1]*0.5] ); //texcoord (middle pixel or right pixel)
 				}
 			}
 		}
@@ -525,24 +542,25 @@ class Gallery{//FIXME art tex dims should be in by 0.5, not 1
 		function keydownfunc(e){
 			me.keyboard(event.keyCode, true);
 		}
-		document.addEventListener('fullscreenchange', function(){
-			var sizemult = 1.0;
+		function fschange(){
 			if(document.fullscreenElement == myCanvas){
 				E.evt("GFS");
-				var rect = myCanvas.getBoundingClientRect();
-				sizemult = Math.min(rect.width/BaseWidth, rect.height/BaseHeight)
+				myCanvas.width = GalleryOpts["FullWidth"];
+				myCanvas.height = GalleryOpts["FullHeight"];
 				myCanvas.requestPointerLock();
 			}else{
 				E.evt("LFS");
+				myCanvas.width = GalleryOpts["BaseWidth"];
+				myCanvas.height = GalleryOpts["BaseHeight"];
 				document.exitPointerLock();
 			}
-			myCanvas.width = sizemult*BaseWidth;
-			myCanvas.height = sizemult*BaseHeight;
 			me.cam_lens.gluPerspective(1.2, myCanvas.width/myCanvas.height, me.zplanes[0], me.zplanes[1]);//vfov was 1.22
 			gl.uniformMatrix4fv(me.u_cam_lens, false, me.cam_lens.arr);
 			gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
 			me.redraw = true;
-		});
+		}
+		document.addEventListener('fullscreenchange', fschange);
+		document.addEventListener('webkitfullscreenchange', fschange);
 		document.addEventListener('pointerlockchange', function(){
 			if(document.pointerLockElement == myCanvas){
 				E.evt("GPL");
@@ -558,7 +576,13 @@ class Gallery{//FIXME art tex dims should be in by 0.5, not 1
 		});
 		myCanvas.onclick = function(){
 			nextButtonInterface(true);
-			myCanvas.requestFullscreen();
+			if(myCanvas.requestFullscreen){
+				myCanvas.requestFullscreen();
+			}else if(myCanvas.webkitRequestFullscreen){
+				myCanvas.webkitRequestFullscreen();
+			}else{
+				E.e("No Fullscreen Method");
+			}
 		};
 		this.myKeyboard = new Keyboard();
 
@@ -579,10 +603,29 @@ class Gallery{//FIXME art tex dims should be in by 0.5, not 1
 		this.u_zoffset = gl.getUniformLocation(program, "u_zoffset");
 
 		gl.uniformMatrix4fv(this.u_cam_lens, false, this.cam_lens.arr);
-		this.draw();
+		this.perfcount_draw = 0;
+		this.perftime_draw = 0;
+		this.perfcount_iter = 0;
+		this.perftime_iter = 0;
 		window.requestAnimationFrame(function(timestamp){me.draw()});
-		cust_intervals.push(setInterval(function(){me.gameIterate();}, 1000*this.invframerate));//Make the game progress
-		cust_intervals.push(setInterval(function(){me.sendPos();}, 1000/5));
+		var intervals = [];
+		intervals.push(setInterval(function(){me.gameIterate();}, 1000*this.invframerate));//Make the game progress
+		intervals.push(setInterval(function(){me.sendPos();}, 1000/5));
+		intervals.push(setInterval(function(){me.updatePerf();}, 1000));
+		if(isQual) cust_intervals = intervals;
+	}
+	updatePerf(){
+		const t = Math.floor(Date.now()/1000);
+		var summary = {"type":"perf","t":t,"d":this.perfcount_draw,"dt":(this.perftime_draw/1000).toFixed(2),"i":this.perfcount_iter,"it":(this.perftime_iter/1000).toFixed(2)};
+		this.perfcount_draw = 0;
+		this.perftime_draw = 0;
+		this.perfcount_iter = 0;
+		this.perftime_iter = 0;
+		if(this.ws != null){
+			this.ws.send(JSON.stringify(summary));
+		}else{
+			console.log(summary);
+		}
 	}
 	sendPos(){
 		const now = Date.now();
@@ -591,6 +634,9 @@ class Gallery{//FIXME art tex dims should be in by 0.5, not 1
 		var stat = {"type":"pos", "time":t, "milli":m, "x": this.pl[0], "y": this.pl[1], "yaw": this.pv, "pitch": this.pvVert};
 		if(this.ws != null){
 			this.ws.send(JSON.stringify(stat));
+		}
+		if(this.coordPrintDom != null){
+			this.coordPrintDom.value = stat["x"]+" "+stat["y"]+" "+stat["pitch"]+" "+stat["yaw"];
 		}
 	}
 	getArtDefinitions(art){ //This takes the 'art' element
@@ -620,6 +666,9 @@ class Gallery{//FIXME art tex dims should be in by 0.5, not 1
 				a["size"] = aDef["size"]; //Put in the default size from the definition if not explicit
 			}
 			a["size"] = a["size"].map(function(item){return item;});//FIXME
+			if(a.hasOwnProperty("scale")){
+				a["size"] = a["size"].map(x => x*a["scale"]);
+			}
 			var c = a["loc"].map(function(i){return i;});//FIXME
 			var relLeft = [0, -a["size"][0]/2];
 			relLeft = rotate(relLeft, a["dir"]/180*Math.PI);
@@ -645,21 +694,25 @@ class Gallery{//FIXME art tex dims should be in by 0.5, not 1
 			p4[0] += offset[0];
 			p4[1] += offset[1];
 
-			aDef.points = aDef.points.concat(p1, p2, p3, p2, p3, p4);
+			aDef.points = aDef.points.concat(p1,p2,p3,p4,p3,p2);
 			var m1 = aDef.texMaxes[0];
 			var m2 = aDef.texMaxes[1];
 			var t1 = [0.0, m2];
 			var t2 = [m1, m2];
 			var t3 = [0.0, 0.0];
 			var t4 = [m1, 0.0];
-			aDef.texCoord = aDef.texCoord.concat(t1,t2,t3,t2,t3,t4);//FIXME
+			aDef.texCoord = aDef.texCoord.concat(t1,t2,t3,t4,t3,t2);//FIXME
 //			aDef.texCoord = aDef.texCoord.concat(t);
 		});
 	}
 	loadTex(images){
 		var gl = this.gl;
 		this.texMaxes = [1,1];
-		this.gltexture = this.createTextureFromImage(images["__tex"], this.texMaxes);
+		var colorOverride = null;
+		if(GalleryOpts["ArtSolidColor"]){
+			colorOverride = "#000000";
+		}
+		this.gltexture = this.createTextureFromImage(images["__tex"], this.texMaxes, colorOverride);
 		gl.bindTexture(gl.TEXTURE_2D, this.gltexture);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR); //This is for things like windows with very small textures.
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); //This is for paintings where we only see a small portion of their real resolution
@@ -667,10 +720,21 @@ class Gallery{//FIXME art tex dims should be in by 0.5, not 1
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
 		var me = this;
-		Object.keys(this.artDef).forEach(k => {
+		Object.keys(this.artDef).forEach( function(k, kidx){
 			var d = me.artDef[k];
 			d.texMaxes = [1,1]
-			d.gltexture = this.createTextureFromImage(images[k], d.texMaxes);
+			colorOverride = null;
+			if(GalleryOpts["ArtSolidColor"]){
+				var colorNum = 5*(kidx+1);
+				if(colorNum > 255){
+					console.log("Insufficient color space for all artwork!");
+					return;
+				}
+				var hexStr = colorNum.toString(16);
+				hexStr = (hexStr.length == 1) ? "0" + hexStr : hexStr;
+				colorOverride = "#ff00"+hexStr;
+			}
+			d.gltexture = me.createTextureFromImage(images[k], d.texMaxes, colorOverride);
 			gl.bindTexture(gl.TEXTURE_2D, d.gltexture);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR); //This is for things like windows with very small textures.
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); //This is for paintings where we only see a small portion of their real resolution
@@ -710,7 +774,7 @@ class Gallery{//FIXME art tex dims should be in by 0.5, not 1
 				t = t.concat(pt1.concat(pt2.concat(pt3)));
 			
 				pt1 = [s*i[(idx * 2) + 2], s*i[(idx * 2) + 3], this.wallH];
-				t = t.concat(pt1.concat(pt2.concat(pt3)));
+				t = t.concat(pt3.concat(pt2.concat(pt1)));
 			}
 		}
 		console.log("Bounds: "+this.bounds);
@@ -738,6 +802,8 @@ class Gallery{//FIXME art tex dims should be in by 0.5, not 1
 		return normals;
 	}
 	draw(){
+		this.perfcount_draw += 1;
+		var drawstart = performance.now();
 		const me = this;
 		/*if(!this.redraw){
 			window.requestAnimationFrame(function(timestamp){me.draw()});
@@ -752,11 +818,12 @@ class Gallery{//FIXME art tex dims should be in by 0.5, not 1
 		const sinpv = Math.sin(this.pv);
 		const sinpvvert = Math.sin(this.pvVert);
 		this.cam_rot.glhLookAtf2([cospv*cospvvert, sinpv*cospvvert, sinpvvert], [-cospv*sinpvvert, -sinpv*sinpvvert, cospvvert]);
+//		this.cam_rot.glhLookAtf2([cospv*cospvvert, sinpv*cospvvert, sinpvvert], [0,0,1]);
 		this.cam_trs.setTo(Mat4.translate(-this.pl[0], -this.pl[1], -this.pl[2]));
 		gl.uniformMatrix4fv(this.u_cam_rot, false, this.cam_rot.arr);
 		gl.uniformMatrix4fv(this.u_cam_trs, false, this.cam_trs.arr);
 		gl.uniform1f(this.u_zoffset, 0.0);
-		this.gl.clear(this.gl.DEPTH_BUFFER_BIT);
+		this.gl.clear(this.gl.DEPTH_BUFFER_BIT | this.gl.COLOR_BUFFER_BIT);
 
 		gl.bindTexture(gl.TEXTURE_2D, this.gltexture);
 		gl.bindBuffer(gl.ARRAY_BUFFER, this.vbuffer);
@@ -777,6 +844,7 @@ class Gallery{//FIXME art tex dims should be in by 0.5, not 1
 			gl.drawArrays(gl.TRIANGLES, 0, d.points.length/3);
 		});
 		window.requestAnimationFrame(function(timestamp){me.draw()});
+		this.perftime_draw += performance.now()-drawstart;
 	}
 	collide(start, end, recurse = 0){
 		if(recurse > 5){
@@ -855,6 +923,8 @@ class Gallery{//FIXME art tex dims should be in by 0.5, not 1
 		return end;
 	}
 	gameIterate(){
+		this.perfcount_iter += 1;
+		var iterstart = performance.now();
 		var moveMult = 1.8;
 		var rotMult = 0.7;
 		var m = this.myKeyboard.getMovementVector(this.pv);
@@ -906,6 +976,7 @@ class Gallery{//FIXME art tex dims should be in by 0.5, not 1
 		while(this.pvVert < -Math.PI/2){
 			this.pvVert = -Math.PI/2;
 		}
+		this.perftime_iter += performance.now()-iterstart;
 	}
 	keyboard(code, down){
 		if(code == 37 || code == 65){
@@ -951,7 +1022,7 @@ class Gallery{//FIXME art tex dims should be in by 0.5, not 1
 		gl.attachShader(program, frag);
 		return program;
 	}
-	createTextureFromImage(image, maxes){//From khronos group
+	createTextureFromImage(image, maxes, colorOverride = null){//From khronos group
 		const gl = this.gl;
 		const texture = gl.createTexture();
 		gl.bindTexture(gl.TEXTURE_2D, texture);
@@ -964,6 +1035,10 @@ class Gallery{//FIXME art tex dims should be in by 0.5, not 1
 			canvas.height = nextHighestPowerOfTwo(image.height);
 			var ctx = canvas.getContext("2d");
 			ctx.drawImage(image, 0, 0, image.width, image.height);
+			if(colorOverride != null){
+				ctx.fillStyle = colorOverride;
+				ctx.fillRect(0, 0, canvas.width, canvas.height);
+			}
 			maxes[0] = image.width/canvas.width;
 			maxes[1] = image.height/canvas.height;
 			image = canvas;
@@ -1004,13 +1079,17 @@ class Gallery{//FIXME art tex dims should be in by 0.5, not 1
 }
 
 
-var loader = new recursiveLoader(ogarresourceroot);
+
+
+var loader = new recursiveLoader(GalleryOpts["GalleryDataRoot"]);
 var vertShader;
-loader.addTarget('gl/world.vert', 'TEXT', function(path, data){vertShader = data;});
+loader.addTarget(GalleryOpts["VertShader"], 'TEXT', function(path, data){vertShader = data;});
 var fragShader;
-loader.addTarget('gl/world.frag', 'TEXT', function(path, data){fragShader = data;});
-var ws;//receptor server websocket
-loader.addTarget(ogarserverpath, 'WS', function(path, data){ws = data;}, true);
+loader.addTarget(GalleryOpts["FragShader"], 'TEXT', function(path, data){fragShader = data;});
+var ws = null;//receptor server websocket
+if(GalleryOpts["ReceptorAddr"] != "NONE"){
+	loader.addTarget(GalleryOpts["ReceptorAddr"], 'WS', function(path, data){ws = data;}, true);
+}
 var images = {};
 var gallerydata;
 
@@ -1029,5 +1108,8 @@ loader.onallload = function(){
 	mycanv.parentNode.replaceChild(glcanvclone, mycanv);
 	mycanv = glcanvclone;
 	gallery = new Gallery(mycanv, gallerydata, images, ws, QID);
+	if(isQual){
+		OGARgallery = gallery;
+	}
 };
 loader.start();
