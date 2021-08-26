@@ -83,10 +83,12 @@ async def clienthandler(websocket, path):
 			if data["type"] == "reg":#register
 				print("Player joining: "+data["qid"]+" "+str(client.ws.remote_address))
 				pushToClientQueue((client, "reg", data["qid"]))
-			elif data["type"] in ("err", "evt", "pos"):
+			elif data["type"] in ("err", "evt", "pos", "perf"):
 				pushToClientQueue((client, data["type"], data))
 			else:
 				print("Unknown type: "+data["type"])
+	except Exception:
+		print("Client handler excepted:",Exception)
 	finally:
 		pushToClientQueue((client, "disconnect"))
 		await unregister(websocket)
@@ -109,6 +111,15 @@ def MainLoop():
 		id int,
 		timestamp int,
 		eventid int,
+		foreign key(id) references participant
+	);
+	CREATE TABLE IF NOT EXISTS perf (
+		id int,
+		timestamp int,
+		drawfps int,
+                iterfps int,
+                drawtime real,
+                itertime real,
 		foreign key(id) references participant
 	);
 	CREATE TABLE IF NOT EXISTS position (
@@ -137,6 +148,7 @@ def MainLoop():
 	else:
 		print("Starting from empty database.")
 	posQString = "insert into position (id, timestamp, millisecond, locX, locY, yaw, pitch) VALUES (?,?,?,?,?,?,?);"
+	perfQString = "insert into perf (id, timestamp, drawfps, drawtime, iterfps, itertime) VALUES (?,?,?,?,?,?);"
 	errQString = "insert into error (id, timestamp, msg) VALUES (?,?,?);"
 	evtQString = "insert into event (id, timestamp, eventid) VALUES (?,?,?);"
 	regQString = "update participant set qid = ? where id = ?;"
@@ -149,6 +161,9 @@ def MainLoop():
 		if task == "pos":
 			d = command[2]
 			RES.c.execute(posQString, (client.id, d['time'], d['milli'], d['x'], d['y'], d['yaw'], d['pitch']))
+		elif task == "perf":
+                        d = command[2]
+                        RES.c.execute(perfQString, (client.id, d['t'], d['d'], d['dt'], d['i'], d['it']))
 		elif task == "err":
 			d = command[2]
 			RES.c.execute(errQString, (client.id, d['time'], d['err'].strip()[0:150]))
